@@ -18,7 +18,7 @@ use crate::items::items::{find_zabbix_items, ZabbixItem};
 use crate::logging::logging::get_logging_config;
 use crate::triggers::triggers::create_trigger;
 use crate::types::types::{EmptyResult, OperationResult};
-use crate::webscenarios::webscenarios::{create_web_scenario, find_web_scenarios, ZabbixWebScenario};
+use crate::webscenarios::webscenarios::{create_web_scenario, delete_web_scenario, find_web_scenarios, ZabbixWebScenario};
 
 mod types;
 
@@ -142,13 +142,38 @@ fn create_web_scenarios_and_triggers(client: &Client, zabbix_config: &ZabbixConf
 
                     let mut has_errors = false;
 
+                    let mut scenario_names: Vec<String> = Vec::new();
                     for item in &zabbix_objects.items {
                         debug!("item '{}'", item.name);
 
                         match create_scenario_and_trigger_for_item(zabbix_config, &auth_token,
                                         client, &url_pattern, &zabbix_objects, item) {
-                            Ok(_) => {}
+                            Ok(scenario_name) => {
+                                if !scenario_name.is_empty() {
+                                    scenario_names.push(scenario_name);
+                                }
+                            }
                             Err(_) => has_errors = true
+                        }
+                    }
+
+                    let scenario_pattern = Regex::new("^Check index page '(.*)'$").unwrap();
+                    let unknown_scenarios: Vec<&ZabbixWebScenario> = zabbix_objects.web_scenarios.iter().filter(|entity| !scenario_names.contains(&entity.name)).collect();
+
+                    for scenario in unknown_scenarios {
+                        if scenario_pattern.is_match(&scenario.name) {
+                            let groups = scenario_pattern.captures_iter(&scenario.name).next().unwrap();
+                            let url = String::from(&groups[1]);
+
+                            match delete_web_scenario(&client, &zabbix_config.api.endpoint, &auth_token, &scenario, &url) {
+                                Ok(_) => {
+                                    info!("web scenario has been deleted for '{}'", url);
+                                },
+                                Err(_) => {
+                                    error!("unable to delete web scenario for url '{}'", url);
+                                    has_errors = true;
+                                }
+                            }
                         }
                     }
 
@@ -222,8 +247,9 @@ fn find_zabbix_objects(client: &Client, zabbix_config: &ZabbixConfig,
 fn create_scenario_and_trigger_for_item(zabbix_config: &ZabbixConfig,
                                         auth_token: &str, client: &Client,
                                         url_pattern: &Regex, zabbix_objects: &ZabbixObjects,
-                                        zabbix_item: &ZabbixItem) -> EmptyResult {
+                                        zabbix_item: &ZabbixItem) -> OperationResult<String> {
     let mut has_errors = false;
+    let mut scenario_name= String::new();
 
     debug!("---------------------------");
     debug!("item: {}", zabbix_item.name);
@@ -233,7 +259,7 @@ fn create_scenario_and_trigger_for_item(zabbix_config: &ZabbixConfig,
         let url = String::from(&groups[1]);
         debug!("- url '{}'", url);
 
-        let scenario_name = format!("Check index page '{}'", url);
+        scenario_name = format!("Check index page '{}'", url);
 
         match zabbix_objects.web_scenarios.iter().find(|entity| entity.name == scenario_name) {
             Some(_) => debug!("web scenario has been found for url '{}', skip", url),
@@ -277,7 +303,7 @@ fn create_scenario_and_trigger_for_item(zabbix_config: &ZabbixConfig,
         Err(OperationError::Error)
 
     } else {
-        Ok(())
+        Ok(scenario_name)
     }
 }
 

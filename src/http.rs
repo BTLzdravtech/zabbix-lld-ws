@@ -34,7 +34,7 @@ pub mod http {
                 }
             }
             Err(e) => {
-                error!("unable to create trigger: '{}'", e);
+                error!("error for post request: '{}'", e);
                 Err(OperationError::Error)
             }
         }

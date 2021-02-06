@@ -13,6 +13,7 @@ pub mod webscenarios {
 
     #[derive(Deserialize)]
     pub struct ZabbixWebScenario {
+        pub httptestid: String,
         pub name: String
     }
 
@@ -122,6 +123,29 @@ pub mod webscenarios {
             }
             Err(_) => {
                 error!("unable to create web scenario for '{}'", item_url);
+                Err(OperationError::Error)
+            }
+        }
+    }
+
+    pub fn delete_web_scenario(client: &reqwest::blocking::Client,
+                               api_endpoint: &str, auth_token: &str,
+                               scenario: &ZabbixWebScenario, scenario_url: &str) -> EmptyResult {
+        info!("deleting web scenario for '{}'", scenario_url);
+        debug!("scenario-id: '{}'", scenario.httptestid);
+
+        let params: Vec<&String> = vec![&scenario.httptestid];
+        let request: ZabbixRequest<Vec<&String>> = ZabbixRequest::new(
+            "httptest.delete", params, auth_token
+        );
+
+        match send_post_request(client, api_endpoint, request) {
+            Ok(_) => {
+                info!("web scenario has been deleted for '{}'", scenario_url);
+                Ok(())
+            }
+            Err(_) => {
+                error!("unable to delete web scenario for '{}'", scenario_url);
                 Err(OperationError::Error)
             }
         }
