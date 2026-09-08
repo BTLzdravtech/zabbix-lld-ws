@@ -25,6 +25,7 @@ pub fn load_config_from_file(file_path: &Path) -> OperationResult<AppConfig> {
 mod tests {
     use crate::config::file::load_config_from_file;
     use crate::config::item::ZabbixItemConfig;
+    use crate::config::trigger::ZabbixTriggerTagConfig;
     use crate::config::{
         AppConfig, WebScenarioConfig, ZabbixApiConfig, ZabbixConfig, ZabbixTriggerConfig,
     };
@@ -70,6 +71,10 @@ mod tests {
                                 .to_string(),
                             event_name: "${URL} is down".to_string(),
                             url: "${URL}".to_string(),
+                            tags: vec![ZabbixTriggerTagConfig {
+                                tag: "site_is_unavailable".to_string(),
+                                value: "${URL}".to_string(),
+                            }],
                         },
 
                         scenario: WebScenarioConfig {

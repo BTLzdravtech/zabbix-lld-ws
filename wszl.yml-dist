@@ -56,6 +56,12 @@ zabbix:
     # Template variables are supported: ${HOST}, ${URL}, ${URL_WITHOUT_PROTOCOL}
     url: "${URL}"
 
+    # Trigger tags (optional)
+    # Template variables are supported: ${HOST}, ${URL}, ${URL_WITHOUT_PROTOCOL}
+    #tags:
+    #  - tag: 'site_is_unavailable'
+    #    value: '${URL_WITHOUT_PROTOCOL}'
+
   scenario:
     # Search existing elements
     key-starts-with: "Check index page '"

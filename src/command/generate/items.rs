@@ -4,12 +4,14 @@ use zabbix_api::item::create::CreateItemRequest;
 use zabbix_api::item::get::GetItemsRequestByKey;
 use zabbix_api::trigger::create::CreateTriggerRequest;
 use zabbix_api::trigger::get::GetTriggerByDescriptionRequest;
+use zabbix_api::trigger::model::ZabbixTriggerTag;
 use zabbix_api::webscenario::create::CreateWebScenarioRequest;
 use zabbix_api::webscenario::get::GetWebScenarioByNameRequest;
 use zabbix_api::webscenario::model::ZabbixWebScenarioStep;
 
 use crate::config::item::ZabbixItemConfig;
 use crate::config::trigger::ZabbixTriggerConfig;
+use std::collections::HashMap;
 use crate::config::ws::WebScenarioConfig;
 use crate::source::UrlSourceProvider;
 use crate::template::{get_template_vars, process_template_string};
@@ -168,7 +170,7 @@ pub fn generate_web_scenarios_and_triggers(
                     url,
                     event_name,
                     dependencies: vec![],
-                    tags: vec![],
+                    tags: get_trigger_tags(trigger_config, &template_vars),
                 };
 
                 debug!("create trigger request: {:?}", request);
@@ -185,4 +187,76 @@ pub fn generate_web_scenarios_and_triggers(
     }
 
     Ok(())
+}
+
+fn get_trigger_tags(
+    trigger_config: &ZabbixTriggerConfig,
+    template_vars: &HashMap<String, String>,
+) -> Vec<ZabbixTriggerTag> {
+    trigger_config
+        .tags
+        .iter()
+        .map(|tag| ZabbixTriggerTag {
+            tag: process_template_string(&tag.tag, template_vars),
+            value: process_template_string(&tag.value, template_vars),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod trigger_tags_tests {
+    use super::get_trigger_tags;
+    use crate::config::trigger::{ZabbixTriggerConfig, ZabbixTriggerTagConfig};
+    use crate::template::get_template_vars;
+
+    #[test]
+    fn template_vars_should_be_resolved_in_tags() {
+        let trigger_config = ZabbixTriggerConfig {
+            name: "Site '${URL}' is unavailable".to_string(),
+            priority: 4,
+            problem_expression: "avg(/${HOST}/web.test.fail[${URL}],#3)>=1".to_string(),
+            recovery_mode: 0,
+            recovery_expression: String::new(),
+            event_name: String::new(),
+            url: String::new(),
+            tags: vec![
+                ZabbixTriggerTagConfig {
+                    tag: "site_is_unavailable".to_string(),
+                    value: "${URL}".to_string(),
+                },
+                ZabbixTriggerTagConfig {
+                    tag: "host".to_string(),
+                    value: "${HOST}".to_string(),
+                },
+            ],
+        };
+
+        let template_vars = get_template_vars("demo", "https://zabbix.com");
+
+        let tags = get_trigger_tags(&trigger_config, &template_vars);
+
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].tag, "site_is_unavailable");
+        assert_eq!(tags[0].value, "https://zabbix.com");
+        assert_eq!(tags[1].tag, "host");
+        assert_eq!(tags[1].value, "demo");
+    }
+
+    #[test]
+    fn empty_tags_should_produce_empty_vec() {
+        let trigger_config = ZabbixTriggerConfig {
+            name: String::new(),
+            priority: 4,
+            problem_expression: String::new(),
+            recovery_mode: 0,
+            recovery_expression: String::new(),
+            event_name: String::new(),
+            url: String::new(),
+            tags: vec![],
+        };
+
+        let template_vars = get_template_vars("demo", "https://zabbix.com");
+
+        assert!(get_trigger_tags(&trigger_config, &template_vars).is_empty());
+    }
 }

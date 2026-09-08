@@ -41,6 +41,10 @@ zabbix:
 
     url: "${URL}"
 
+    tags:
+      - tag: 'site_is_unavailable'
+        value: '${URL}'
+
   scenario:
     key-starts-with: "blablabla"
     name-template: "Check index page '${URL}'"
