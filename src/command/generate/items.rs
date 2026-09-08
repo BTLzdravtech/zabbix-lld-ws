@@ -17,6 +17,9 @@ use crate::source::UrlSourceProvider;
 use crate::template::{get_template_vars, process_template_string};
 use crate::types::EmptyResult;
 use crate::zabbix::host::find_zabbix_host_id;
+use crate::zabbix::webscenario::{
+    delete_web_scenarios, find_web_scenarios_by_name_prefix, WebScenarioRef,
+};
 
 pub fn generate_web_scenarios_and_triggers(
     zabbix_client: &impl ZabbixApiClient,
@@ -44,7 +47,9 @@ pub fn generate_web_scenarios_and_triggers(
         }
     };
 
-    for url_source in url_sources {
+    let mut generated_scenario_names: Vec<String> = vec![];
+
+    for url_source in &url_sources {
         debug!("url source: {:?}", url_source);
 
         let mut zabbix_host: String = url_source.zabbix_host.to_string();
@@ -92,6 +97,8 @@ pub fn generate_web_scenarios_and_triggers(
 
             let scenario_name =
                 process_template_string(&web_scenario_config.name_template, &template_vars);
+
+            generated_scenario_names.push(scenario_name.to_string());
 
             let request = GetWebScenarioByNameRequest::new(&scenario_name);
 
@@ -186,7 +193,74 @@ pub fn generate_web_scenarios_and_triggers(
         }
     }
 
+    if web_scenario_config.delete_unused {
+        if url_sources.is_empty() {
+            warn!("no url sources were found, skip deletion of unused web scenarios");
+        } else {
+            delete_unused_web_scenarios(
+                zabbix_client,
+                &session,
+                &web_scenario_config.key_starts_with,
+                &generated_scenario_names,
+            )?;
+        }
+    }
+
     Ok(())
+}
+
+/// Delete web scenarios whose name starts with `name_prefix` but which
+/// weren't produced from the current url sources.
+fn delete_unused_web_scenarios(
+    zabbix_client: &impl ZabbixApiClient,
+    session: &str,
+    name_prefix: &str,
+    known_scenario_names: &[String],
+) -> EmptyResult {
+    info!("looking for unused web scenarios..");
+
+    if name_prefix.is_empty() {
+        warn!("'scenario.key-starts-with' is empty, skip deletion of unused web scenarios");
+        return Ok(());
+    }
+
+    let existing_scenarios =
+        find_web_scenarios_by_name_prefix(zabbix_client, session, name_prefix)
+            .context("unable to find existing web scenarios")?;
+
+    let unused_ids = get_unused_scenario_ids(&existing_scenarios, known_scenario_names);
+
+    if unused_ids.is_empty() {
+        info!("no unused web scenarios found");
+        return Ok(());
+    }
+
+    for scenario in &existing_scenarios {
+        if unused_ids.contains(&scenario.httptest_id) {
+            info!(
+                "web scenario '{}' (id {}) is unused, deleting..",
+                scenario.name, scenario.httptest_id
+            );
+        }
+    }
+
+    delete_web_scenarios(zabbix_client, session, &unused_ids)
+        .context("unable to delete unused web scenarios")?;
+
+    info!("{} unused web scenario(s) have been deleted", unused_ids.len());
+
+    Ok(())
+}
+
+fn get_unused_scenario_ids(
+    existing_scenarios: &[WebScenarioRef],
+    known_scenario_names: &[String],
+) -> Vec<String> {
+    existing_scenarios
+        .iter()
+        .filter(|scenario| !known_scenario_names.contains(&scenario.name))
+        .map(|scenario| scenario.httptest_id.to_string())
+        .collect()
 }
 
 fn get_trigger_tags(
@@ -201,6 +275,53 @@ fn get_trigger_tags(
             value: process_template_string(&tag.value, template_vars),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod unused_scenarios_tests {
+    use super::get_unused_scenario_ids;
+    use crate::zabbix::webscenario::WebScenarioRef;
+
+    fn scenario(id: &str, name: &str) -> WebScenarioRef {
+        WebScenarioRef {
+            httptest_id: id.to_string(),
+            name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn scenarios_not_in_known_list_should_be_returned() {
+        let existing = vec![
+            scenario("1", "Check index page 'a.com'"),
+            scenario("2", "Check index page 'b.com'"),
+            scenario("3", "Check index page 'c.com'"),
+        ];
+
+        let known = vec![
+            "Check index page 'a.com'".to_string(),
+            "Check index page 'c.com'".to_string(),
+        ];
+
+        assert_eq!(get_unused_scenario_ids(&existing, &known), vec!["2".to_string()]);
+    }
+
+    #[test]
+    fn nothing_should_be_returned_when_all_known() {
+        let existing = vec![scenario("1", "Check index page 'a.com'")];
+        let known = vec!["Check index page 'a.com'".to_string()];
+
+        assert!(get_unused_scenario_ids(&existing, &known).is_empty());
+    }
+
+    #[test]
+    fn everything_should_be_returned_when_nothing_known() {
+        let existing = vec![scenario("1", "x"), scenario("2", "y")];
+
+        assert_eq!(
+            get_unused_scenario_ids(&existing, &[]),
+            vec!["1".to_string(), "2".to_string()]
+        );
+    }
 }
 
 #[cfg(test)]

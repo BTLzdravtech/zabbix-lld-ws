@@ -9,16 +9,21 @@ pub struct WebScenarioConfig {
     pub response_timeout: String,
     pub expect_status_code: String,
     pub attempts: u8,
-    pub update_interval: String
+    pub update_interval: String,
+
+    /// Delete web scenarios whose name starts with `key_starts_with`
+    /// but which don't correspond to any of the current url sources.
+    #[serde(default)]
+    pub delete_unused: bool,
 }
 
 impl Display for WebScenarioConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f, "key-starts-with: '{}', name-template: '{}', response-timeout: '{}', \
-            expect-status-code: '{}, attempts: {}, update-interval: '{}'",
+            expect-status-code: '{}, attempts: {}, update-interval: '{}', delete-unused: {}",
             self.key_starts_with, self.name_template, self.response_timeout,
-            self.expect_status_code, self.attempts, self.update_interval
+            self.expect_status_code, self.attempts, self.update_interval, self.delete_unused
         )
     }
 }

@@ -84,6 +84,7 @@ mod tests {
                             expect_status_code: "200".to_string(),
                             attempts: 3,
                             update_interval: "5m".to_string(),
+                            delete_unused: true,
                         },
                     },
                 };
